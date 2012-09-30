@@ -1,0 +1,124 @@
+#!/bin/sh
+
+set -u
+set -e
+
+#set this to your VDR video directory
+#BASE_DIR=/srv/video.00
+BASE_DIR=/srv/VDR_VIDEO
+
+# record hook script to handle the protection.fsk record protection in case of
+# the edited|move events
+#
+# there are two modes for the protection.fsk protection
+# 1. the recording are direct protected with an protection.fsk flag file in the
+#    recording directory
+# 2. the recording are indirect protected because an upper directory are
+#    protected with the protection.fsk
+# this script will handle this as follow
+# - if the record itself are protected the target record will also protected in
+#   the same way
+# - if the record are protected because an upper directory are protected
+#   (indirect protection) then
+#   - the target record will not be direct protected if an upper directory of
+#     the target are protected, so the record keep its indirect protection status
+#   - the target record will be direct protected if none of the upper directory
+#     are protected
+#
+# ATTENTION! For "edited" this Script need the name of the original recording as
+#            the third Parameter.
+# This is the case if you use vdr >= 1.7.28, but Plugins that call the recording
+# "edited" hook need to support this also.
+#
+# If you found a bug please send me an message
+
+#Copyright 2012 Keine_Ahnung@vdr-portal.de
+
+#This script is free software: you can redistribute it and/or modify it under the
+#terms of the GNU General Public License as published by the Free Software
+#Foundation, either version 3 of the License, or (at your option) any later version.
+
+#This sCript is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+#without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+#PURPOSE. See the GNU General Public License for more details.
+
+#You should have received a copy of the GNU General Public License along with this script.
+#If not, see http://www.gnu.org/licenses/.
+################################################################################
+PROTECTION_FILE="protection.fsk"
+FSK_NOT=1
+FSK_DIRECT=2
+FSK_INDIRECT=3
+
+check_protection() {
+
+	testdir="${1}"
+
+	# direct protection
+	[ -e "${testdir}/${PROTECTION_FILE}" ] && return ${FSK_DIRECT}
+
+	# indirect protection, "protection.fsk" in upper level directory
+	testdir="$(dirname "${testdir}")"
+	while [ "${testdir}" != "${BASE_DIR}" ]; do
+		[ -e "${testdir}/${PROTECTION_FILE}" ] && return ${FSK_INDIRECT}
+		testdir="$(dirname "${testdir}")"
+		# to be sure to not get in endless loop
+		if [ "${#testdir}" -lt "2" ]; then
+			printf "Something goes really wrong!\n" 1>&2
+			exit 1
+		fi
+	done
+	# no direct or indirect protection
+	return ${FSK_NOT}
+
+}
+
+do_protection() {
+
+	ret=0
+	check_protection "${SOURCE_RECORD_DIR}" || ret=$?
+	case "${ret}" in
+		${FSK_DIRECT})
+			# source protection are direct, so set direct protection again
+			if [ -d "${TARGET_RECORD_DIR}" ]; then
+				touch "${TARGET_RECORD_DIR}/${PROTECTION_FILE}"
+			else
+				printf "Target directory (\"%s\") not found!\n" "${TARGET_RECORD_DIR}" 1>&2
+				exit 1
+			fi
+		;;
+		${FSK_INDIRECT})
+			ret=0
+			check_protection "${TARGET_RECORD_DIR}" || ret=$?
+			if [ "${ret}" -ne "${FSK_INDIRECT}" ]; then
+					# source protection are indirect but no indirect protection in target
+					# dir, so change mode to direct protection
+					if [ -d "${TARGET_RECORD_DIR}" ]; then
+						touch "${TARGET_RECORD_DIR}/${PROTECTION_FILE}"
+					else
+						printf "Target directory (\"%s\") not found!\n" "${TARGET_RECORD_DIR}" 1>&2
+						exit 1
+					fi
+			fi
+		;;
+	esac
+
+}
+
+
+case "${1}" in
+
+	edited)
+		SOURCE_RECORD_DIR="${3}"
+		TARGET_RECORD_DIR="${2}"
+		do_protection
+	;;
+	move)
+		SOURCE_RECORD_DIR="${2}"
+		TARGET_RECORD_DIR="${3}"
+		do_protection
+	;;
+
+esac
+
+exit 0

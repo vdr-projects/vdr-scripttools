@@ -1,0 +1,62 @@
+#!/bin/sh
+
+set -u
+set -e
+
+EPGIMAGESPATH="/var/cache/vdr/epgimages"
+EPGIMAGESFORMAT="jpg"
+RECORDINGIMAGENAME="thumbnail"
+
+do_after() {
+
+	if [ -e "${TARGET_RECORD_DIR}/index.vdr" ]; then
+		INFO="info.vdr"
+	elif [ -e "${TARGET_RECORD_DIR}/index" ]; then
+		INFO="info.vdr"
+	else
+		return 0
+	fi
+
+	EVENTID="$(cat "${TARGET_RECORD_DIR}/${INFO}" | egrep "^E " | cut -d " " -f 2)"
+	CHANNELID="$(cat "${TARGET_RECORD_DIR}/${INFO}" | egrep "^C " | cut -d " " -f 2)"
+
+	if [ -e "${EPGIMAGESPATH}/${CHANNELID}_${EVENTID}.${EPGIMAGESFORMAT}" ]; then
+		cp "${EPGIMAGESPATH}/${CHANNELID}_${EVENTID}.${EPGIMAGESFORMAT}" "${TARGET_RECORD_DIR}/${RECORDINGIMAGENAME}.${EPGIMAGESFORMAT}"
+	fi
+
+	COUNTER=1
+	while [ -e "${EPGIMAGESPATH}/${CHANNELID}_${EVENTID}_${COUNTER}.${EPGIMAGESFORMAT}" ]; do
+		cp "${EPGIMAGESPATH}/${CHANNELID}_${EVENTID}_${COUNTER}.${EPGIMAGESFORMAT}" "${TARGET_RECORD_DIR}/${RECORDINGIMAGENAME}_${COUNTER}.${EPGIMAGESFORMAT}"
+		COUNTER=$(expr ${COUNTER} + 1)
+	done
+
+}
+
+
+
+do_edit() {
+	find "${SOURCE_RECORD_DIR}/" -maxdepth 1 \( -name "${RECORDINGIMAGENAME}.${EPGIMAGESFORMAT}" -o -name "${RECORDINGIMAGENAME}_*.${EPGIMAGESFORMAT}" \) -print0 | xargs -0r cp -t "${TARGET_RECORD_DIR}"
+}
+
+
+
+case "${1}" in
+
+	after)
+		TARGET_RECORD_DIR="${2}"
+		do_after
+	;;
+	edited)
+		SOURCE_RECORD_DIR="${3}"
+		TARGET_RECORD_DIR="${2}"
+		do_edit
+	;;
+	move)
+		SOURCE_RECORD_DIR="${2}"
+		TARGET_RECORD_DIR="${3}"
+		do_edit
+	;;
+
+esac
+
+exit 0

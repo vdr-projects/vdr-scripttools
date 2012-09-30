@@ -1,0 +1,50 @@
+#!/bin/sh
+
+set -u
+set -e
+
+LENGTH_FILE="length.vdr"
+CRC_FILE="checksum.md5"
+
+do_length() {
+
+	[ -e "${1}/index.vdr" ] && vdr-getlength "${1}" || true
+	[ -e "${1}/index" ] && vdr-getlength "${1}" || true
+
+}
+
+do_crc() {
+
+	if [ -e "${1}/index.vdr" ]; then
+		echo "cd \"${1}\"; tmp=\"\$(tempfile)\"; nice -n 19 md5sum -b [0-9][0-9][0-9].vdr 2> /dev/null 1> \"\${tmp}\" && ([ -d \"${1}\" ] && cp \"\${tmp}\" \"${1}/${CRC_FILE}\" || echo \"directory ${1} moved\"; rm \"\${tmp}\")" | at now
+	fi
+	if [ -e "${1}/index" ]; then
+		echo "cd \"${1}\"; tmp=\"\$(tempfile)\"; nice -n 19 md5sum -b [0-9][0-9][0-9][0-9][0-9].ts 2> /dev/null 1> \"\${tmp}\" && ([ -d \"${1}\" ] && cp \"\${tmp}\" \"${1}/${CRC_FILE}\" || echo \"directory ${1} moved\"; rm \"\${tmp}\")" | at now
+	fi
+
+}
+
+do_move() {
+
+	cp "${1}/${LENGTH_FILE}" "${2}/${LENGTH_FILE}"
+	cp "${1}/${CRC_FILE}" "${2}/${CRC_FILE}"
+
+}
+
+
+case "${1}" in
+
+	after|edited)
+		TARGET_RECORD_DIR="${2}"
+		do_length "${TARGET_RECORD_DIR}"
+		do_crc "${TARGET_RECORD_DIR}"
+	;;
+	move)
+		SOURCE_RECORD_DIR="${2}"
+		TARGET_RECORD_DIR="${3}"
+		do_move "${SOURCE_RECORD_DIR}" "${TARGET_RECORD_DIR}"
+	;;
+
+esac
+
+exit 0

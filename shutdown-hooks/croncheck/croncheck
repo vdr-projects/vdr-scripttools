@@ -1,0 +1,43 @@
+#!/bin/sh
+
+SPOOLDIR="/var/spool/cronceck"
+TIMEFRAME=60
+
+
+F="$(basename "$0")"
+
+# We are /etc/cron.*/00000_croncheck
+if [ "$(basename "$0")" = "00000_croncheck" ]; then
+  crontype="$(basename "$(dirname "$0")")"
+  mkdir -p "${SPOOLDIR}"
+  echo "${crontype}" > "${SPOOLDIR}/parts_${crontype}.run"
+# We are /etc/cron.*/zzzzz_croncheck
+elif [ "$(basename "$0")" = "zzzzz_croncheck" ]; then
+  crontype="$(basename "$(dirname "$0")")"
+  mkdir -p "${SPOOLDIR}"
+  rm -f "${SPOOLDIR}/parts_${crontype}.run"
+# We are /usr/sbin/croncheck
+elif [ "$(basename "$0")" = "croncheck" ]; then
+  crontype="$2"
+  mkdir -p "${SPOOLDIR}"
+  case "$1" in
+    start)
+      echo "${crontype}" > "${SPOOLDIR}/crontab_${crontype}.run"
+    ;;
+    stop)
+      rm -f "${SPOOLDIR}/crontab_${crontype}.run"
+    ;;
+  esac
+# We are /etc/vdr/shutdown-hooks\S[\d][\d].croncheck
+elif [ "${F#*.}" = "croncheck" ]; then
+  if [ -d "${SPOOLDIR}" ]; then
+    oldifs=$IFS
+    IFS='
+'
+    for file in $(find "${SPOOLDIR}" \( -type f -and -cmin -${TIMEFRAME} \) ); do
+      echo "ABORT_MESSAGE=\"cron '$(cat $file)' running\""
+      exit 1
+    done
+    IFS=$oldifs
+  fi
+fi
