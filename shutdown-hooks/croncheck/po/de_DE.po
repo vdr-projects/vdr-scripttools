@@ -1,0 +1,36 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: <foo bar>\n"
+"Report-Msgid-Bugs-To: <see README>\n"
+"POT-Creation-Date: 2012-01-18 17:02+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: German\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Shutdown control"
+msgstr "Shutdown Kontrolle"
+
+msgid "prevent shutdown"
+msgstr "shutdown verhindern"
+
+msgid "enable shutdown"
+msgstr "shutdown ermöglichen"
+
+msgid "Usage: $F start|stop [<id>]"
+msgstr "Nutzung: $F start|stop [<id>]"
+
+msgid "Usage: $F start|stop|osdserver <id>"
+msgstr "Nutzung: $F start|stop|osdserver <id>"
+
+msgid "shutdown manually aborded"
+msgstr "shutdown manuell unterbunden"
+
+msgid "cronjob >$reason< running"
+msgstr "cronjob >$reason< läuft"
+
+msgid "shutdown manually aborded by >$reason<"
+msgstr "shutdown von >$reason< manuell verhindert"

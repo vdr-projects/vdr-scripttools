@@ -1,41 +1,297 @@
-#!/bin/sh
+#!/bin/bash
 
-SPOOLDIR="/var/spool/cronceck"
+SPOOLDIR="/var/run/cronceck"
 TIMEFRAME=60
+DEFAULT_OSDSEVER_PORT=2010
+
+
+
+export TEXTDOMAIN=croncheck
+. gettext.sh 2> /dev/null
+if [ $? -eq 1 ]; then
+  eval_gettext () {
+    gettext_eval="printf '%s' \"$1\"" 
+    printf "%s" "`eval \"$gettext_eval\"`"
+  }
+  gettext() {
+    printf "%s" "$1";
+  }
+fi
+
+
+
+# copied from osdserver examples/demo.sh
+# convenient return values
+true=0
+false=1
+
+
+# Some generic stuff for handling a connection
+
+
+function error() {
+    # Fatal error. Send quit command, close FIFO and terminate netcat
+    [ "${reply2xx[0]}" != 202 ] && SendCmd Quit
+
+    exec 3>&-
+    exec 4>&-
+
+    kill $pid
+
+    exit 1
+}
+
+function ConnectServer() {
+    # Connect to the OSDServer
+
+    # Set up temporary fifo and open as file descriptor 3 and 4
+    mkfifo --mode=700 /tmp/pipe-in$$ /tmp/pipe-out$$
+    exec 3<> /tmp/pipe-in$$
+    exec 4<> /tmp/pipe-out$$
+    rm /tmp/pipe-in$$ /tmp/pipe-out$$
+    
+    # Connect to server using the fifo
+    { 
+        netcat $1 $2
+        
+        # In case of connection loss:
+        echo 499 disconnected
+        echo 202 Good Bye.
+    } <&3 >&4 &
+    pid=$!
+    
+    # Sending to the server: use >&3
+    # Receive from the server: use <&4
+}
+
+
+function ReadReply() {
+    # Read a complete server reply until 2xx return code,
+    # and store replies in each category by number
+    reply2xx=()
+    reply3xx=()
+    reply4xx=()
+    reply5xx=()
+    reply6xx=()
+
+    while read -r code line <&4 ; do
+        #echo "< $code $line"
+        # screen echo
+        
+        case $code in
+            2*)     IFS=$' \t\n\r' reply2xx=($code "$line")
+                    ;;
+            3*)     IFS=$' \t\n\r' reply3xx=($code $line)
+                    ;;
+            4*)     IFS=$' \t\n\r' reply4xx=($code "$line")
+                    ;;
+            5*)     IFS=$' \t\n\r' reply5xx=($code "$line")
+                    ;;
+            6*)     IFS=$' \t\n\r' reply6xx=($code "$line")
+                    ;;
+        esac
+        [ -n "${reply2xx[0]}" ] && break
+    done
+
+    [ -n "${reply4xx[0]}" ] && return $false
+    return $true
+}
+
+function SendCmd() {
+    # Send a command and read the reply
+
+    #echo "> $*"
+    # screen echo
+
+    echo "$*" >&3
+    # network send
+
+    ReadReply
+}
+
+function IsEvent() {
+    # Helper to check reply for a certain event
+
+    [ "${reply3xx[0]}" != 300 ] && return $false
+    [ "${reply3xx[1]}" != "$1" ] && return $false
+    [ "${reply3xx[2]}" != "$2" ] && return $false
+
+    return $true
+}
+
+
+function QuoteString() {
+    # Quote arbitrary string for use in '' and ""
+    local str="${!1}"
+    
+    str="${str//'\'/\\\\}"
+    str="${str//'\\'/\\\\}"
+    # work around bash bug: double quoted '\'
+    
+    str="${str//\'/$'\\\''}"
+    # This is bogus, anyone knows something better to replace ' by \' ?
+    
+    str="${str//\"/\\\"}"
+    str="${str//$'\r'/\\r}"
+    str="${str//$'\n'/\\n}"
+    str="${str//$'\t'/\\t}"
+    
+    eval "$1=\$str"
+}
+
+function UnquoteString() {
+    # Unquote string
+    local str="${!1}"
+
+    str="${str//\\r/$'\r'}"
+    str="${str//\\n/$'\n'}"
+    str="${str//\\t/$'\t'}"
+    str="${str//\\\"/\"}"
+    str="${str//\\\'/\'}"
+    str="${str//\\\\/\\}"
+
+    eval "$1=\$str"
+}
+
+
+# Enough generic stuff, now for some hello world 
+# end of copied from osdserver examples/demo.sh
+
+
+
+function menu() {
+  SendCmd "menu=New Menu '$(gettext "Shutdown control")'" || return $false
+  SendCmd "menu.EnableEvent close" || return $false
+
+  SendCmd "opt1=menu.AddNew OsdItem '$(gettext "prevent shutdown")'" || return $false
+  if [ -f "${SPOOLDIR}/flag.osdserver" ]; then
+    SendCmd "opt1.SetCurrent" || return $false
+  fi
+  SendCmd "opt1.EnableEvent keyOk" || return $false
+
+  SendCmd "opt2=menu.AddNew OsdItem '$(gettext "enable shutdown")'" || return $false
+  if [ ! -f "${SPOOLDIR}/flag.osdserver" ]; then
+    SendCmd "opt2.SetCurrent" || return $false
+  fi
+  SendCmd "opt2.EnableEvent keyOk" || return $false
+
+  SendCmd "menu.Show" || return $false
+
+  while true ; do
+    SendCmd "menu.SleepEvent" || return $false
+
+    if IsEvent menu close ; then    
+      return $true
+    fi
+
+    if IsEvent opt1 keyOk ; then
+      SendCmd "menu.SendState osEnd" || return $false
+      mkdir -p "${SPOOLDIR}"
+      touch "${SPOOLDIR}/flag.osdserver"
+      return $true
+    fi
+
+    if IsEvent opt2 keyOk ; then
+      SendCmd "menu.SendState osEnd" || return $false
+      rm -f "${SPOOLDIR}/flag.osdserver"
+      return $true
+    fi
+  done
+}
+
 
 
 F="$(basename "$0")"
-
 # We are /etc/cron.*/00000_croncheck
 if [ "$(basename "$0")" = "00000_croncheck" ]; then
   crontype="$(basename "$(dirname "$0")")"
   mkdir -p "${SPOOLDIR}"
-  echo "${crontype}" > "${SPOOLDIR}/parts_${crontype}.run"
+  echo "${crontype}" > "${SPOOLDIR}/${crontype}.cronparts"
 # We are /etc/cron.*/zzzzz_croncheck
 elif [ "$(basename "$0")" = "zzzzz_croncheck" ]; then
   crontype="$(basename "$(dirname "$0")")"
-  mkdir -p "${SPOOLDIR}"
-  rm -f "${SPOOLDIR}/parts_${crontype}.run"
-# We are /usr/sbin/croncheck
-elif [ "$(basename "$0")" = "croncheck" ]; then
-  crontype="$2"
+  rm -f "${SPOOLDIR}/${crontype}.cronparts"
+# We are /usr/bin/vdrps
+elif [ "$(basename "$0")" = "vdrps" ]; then
   mkdir -p "${SPOOLDIR}"
   case "$1" in
     start)
-      echo "${crontype}" > "${SPOOLDIR}/crontab_${crontype}.run"
+      mkdir -p "${SPOOLDIR}"
+      [ -z "$2" ] \
+       && touch "${SPOOLDIR}/flag.vdrpsflag" \
+       || echo "${2}" > "${SPOOLDIR}/$(echo "${2}" | base64 -w 0).vdrps"
+      
     ;;
     stop)
-      rm -f "${SPOOLDIR}/crontab_${crontype}.run"
+      [ -z "$2" ] \
+      && rm -f "${SPOOLDIR}/flag.vdrpsflag" \
+      || rm -f "${SPOOLDIR}/$(echo "${2}" | base64 -w 0).vdrps"
+    ;;
+    *)
+      printf "$(eval_gettext 'Usage: $F start|stop [<id>]')\n"
+      exit 1
+    ;;
+  esac
+# We are /usr/bin/croncheck
+elif [ "$(basename "$0")" = "croncheck" ]; then
+  mkdir -p "${SPOOLDIR}"
+  case "$1" in
+    start)
+      [ -z "$2" ] && exit 1
+      mkdir -p "${SPOOLDIR}"
+      echo "${2}" > "${SPOOLDIR}/$(echo "${2}" | base64 -w 0).crontab"
+    ;;
+    stop)
+      [ -z "$2" ] && exit 1
+      rm -f "${SPOOLDIR}/$(echo "${2}" | base64 -w 0).crontab"
+    ;;
+    osdserver)
+      osdserver_port=$(getservbyname vdrosdserver tcp 2>/dev/null) || osdserver_port=${DEFAULT_OSDSEVER_PORT}
+      ConnectServer localhost ${osdserver_port}
+      # Connect to the server process
+
+      ReadReply || error
+      # Read server welcome
+
+      SendCmd "Version 0.1" || error
+      # Identify to server with protocol version
+
+      menu || error
+      # Do menu
+
+      SendCmd Quit
+      # ... and good bye
+
+      exec 3>&-
+      exec 4>&-
+      # close FIFOs 
+    ;;
+    *)
+      printf "$(eval_gettext 'Usage: $F start|stop|osdserver <id>')\n"
+      exit 1
     ;;
   esac
 # We are /etc/vdr/shutdown-hooks\S[\d][\d].croncheck
 elif [ "${F#*.}" = "croncheck" ]; then
   if [ -d "${SPOOLDIR}" ]; then
+
+    if [ -f "${SPOOLDIR}/flag.osdserver" -o -f "${SPOOLDIR}/flag.vdrpsflag" ]; then
+      echo "ABORT_MESSAGE=\"$(gettext "shutdown manually aborded")\""
+      exit 1
+    fi
+
     oldifs=$IFS
     IFS='
 '
-    for file in $(find "${SPOOLDIR}" \( -type f -and -cmin -${TIMEFRAME} \) ); do
-      echo "ABORT_MESSAGE=\"cron '$(cat $file)' running\""
+    for file in $(find "${SPOOLDIR}" \( -type f -and -cmin -${TIMEFRAME} -and \( -name *.cronparts -or -name *.crontab \) \) ); do
+      reason=$(cat $file)
+      echo "ABORT_MESSAGE=\"$(eval_gettext 'cronjob >$reason< running')\""
+      exit 1
+    done
+
+    for file in $(find "${SPOOLDIR}" \( -type f -and -name *.vdrps \) ); do
+      reason=$(cat $file)
+      echo "ABORT_MESSAGE=\"$(eval_gettext 'shutdown manually aborded by >$reason<')\""
       exit 1
     done
     IFS=$oldifs
