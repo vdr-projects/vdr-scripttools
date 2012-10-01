@@ -1,0 +1,157 @@
+#!/usr/bin/env python
+# coding=iso-8859-15
+
+import os, hashlib, sys, string, getopt, datetime, time, pipes
+
+SVDRPSEND="svdrpsend"
+VERSION="0.0.1"
+NAME="cmp_dvd"
+
+MSG_SVDRP=1
+MSG_CONSOLE=2
+MSG_NONE=0
+
+class progress:
+	def __init__(self, max, type, file):
+		self.start="%s" % int(time.time())
+		self.enabled=True
+		self.last_pos=0
+		self.pos=0
+		self.max_byte=max*2
+		self.type=type
+		self.file=file
+		if type==MSG_SVDRP: self.width = 100
+		if type==MSG_CONSOLE: self.width = 80
+		if type==MSG_NONE: self.enabled=False
+		if type==MSG_CONSOLE: sys.stderr.write("--------------------------------------------------------------------------------\n")
+		if type==MSG_SVDRP: os.system("%s PLUG bgprocess PROCESS %s %s %d %s" % (SVDRPSEND, NAME, self.start, 0, pipes.quote(self.file)))
+	def add(self, add):
+		if self.enabled:
+			self.pos=self.pos+add
+			if int((self.pos*self.width)/self.max_byte)!=self.last_pos:
+				self.last_pos=int((self.pos*self.width)/self.max_byte)
+				if self.type==MSG_CONSOLE: sys.stderr.write("=")
+				if self.type==MSG_SVDRP: os.system("%s PLUG bgprocess PROCESS %s %s %d %s" % (SVDRPSEND, NAME, self.start, self.last_pos, pipes.quote(self.file)))
+	def done(self):
+		if self.enabled:
+			if self.type==MSG_CONSOLE: sys.stderr.write("\n")
+			if self.type==MSG_SVDRP: os.system("%s PLUG bgprocess PROCESS %s %s %d %s" % (SVDRPSEND, NAME, self.start, 120, pipes.quote(self.file)))
+
+def checksum(size, file):
+	try:
+		f = open(file)
+	except IOError:
+		p.done()
+		nachricht("Fehler beim öffnen von %s" % (file))
+		sys.exit(1)
+	m = hashlib.md5()
+	z=size
+	data_s=0
+	while z>0:
+		if z >= 2048: re=2048
+		else: re=z
+		try:
+			data=f.read(re)
+		except IOError:
+			p.done()
+			nachricht("Lesefehler bei %s auf Position %d" % (file, f.tell()))
+			sys.exit(1)
+		p.add(len(data))
+		data_s=data_s+len(data)
+		m.update(data)
+		z=z-re
+
+	f.close()
+	return m.hexdigest(), data_s
+
+def nachricht(text):
+	if MESSAGES==MSG_SVDRP: os.system("%s MESG %s" % (SVDRPSEND, pipes.quote(string.split(text, "\n")[0])))
+	if MESSAGES==MSG_CONSOLE: sys.stderr.write("%s\n" % text)
+
+def usage():
+	nachricht("""USAGE: %s [options]
+    cmp_dvd - A simple tool to compare a ISO Image with the burned DVD.
+
+    options:
+    -s, --source=<source file>: The ISO File
+    -t, --target=<target file>: The DVD Device
+    -m, --messages=<message mode>:
+          - SVDRP  : for svdrpsend Messages
+          - CONSOLE: for Console Massages
+          - NONE   : no Massages
+""" % sys.argv[0])
+
+if __name__ == '__main__':
+
+	SOURCE=""
+	TARGET=""
+	MESSAGES=MSG_CONSOLE
+	DEBUG = False
+	HELP=False
+	CMD_ERR=False
+	CMD_VERSION=False
+
+	try:
+		opts, args = getopt.getopt(sys.argv[1:],
+		"hs:t:m:dv",
+		["help", "source=", "messages=", "debug", "version"]
+		)
+	except getopt.GetoptError: CMD_ERR=True
+
+	for o, a in opts:
+		if o in ("-d", "--debug"):
+			DEBUG = True
+		elif o in ("-v", "--version"):
+			CMD_VERSION=True
+		elif o in ("-s", "--source"):
+			SOURCE = a
+		elif o in ("-t", "--target"):
+			TARGET = a
+		elif o in ("-m", "--massages"):
+			if string.upper(a) == "SVDRP":
+				MESSAGES=MSG_SVDRP
+			elif string.upper(a) == "CONSOLE":
+				MESSAGES=MSG_CONSOLE
+			elif string.upper(a) == "NONE":
+				MESSAGES=MSG_NONE
+			else:
+				CMD_ERR=True
+		elif o in ("-h", "--help"):
+			HELP=True
+
+	if HELP:
+		usage()
+		sys.exit(0)
+
+	if CMD_VERSION: nachricht("Version %s\n" % VERSION)
+
+	if (SOURCE=="") or (TARGET==""):
+		if CMD_VERSION: sys.exit(0)
+		else: CMD_ERR=True
+
+	if CMD_ERR:
+		usage()
+		sys.exit(1)
+
+	nachricht("Vergleiche %s mit %s" % (SOURCE, TARGET))
+
+	SIZE=os.path.getsize(SOURCE)
+	if DEBUG: nachricht("Source Size: %d\n" % SIZE)
+
+	p=progress(SIZE, MESSAGES, os.path.basename(SOURCE))
+	input_crc, input_size=checksum(SIZE, SOURCE)
+	if DEBUG: nachricht("Source: CRC %s; Read: %d\n" % (input_crc, input_size))
+	output_crc, output_size=checksum(SIZE, TARGET)
+	p.done()
+	if DEBUG: nachricht("Target: CRC %s; Read: %d\n" % (output_crc, output_size))
+
+	if (input_size <> SIZE) or (output_size <> SIZE):
+		nachricht("DVD Vergleich schlug irgendwie fehl!")
+		sys.exit(1)
+
+	if output_crc <> input_crc:
+		nachricht("DVD Vergleich wies Fehler auf!")
+		sys.exit(1)
+	else:
+		nachricht("DVD erfolgreich gebrannt :)")
+		sys.exit(0)
