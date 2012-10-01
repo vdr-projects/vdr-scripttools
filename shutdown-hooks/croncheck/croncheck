@@ -246,6 +246,9 @@ elif [ "$(basename "$0")" = "croncheck" ]; then
       rm -f "${SPOOLDIR}/$(echo "${2}" | base64 -w 0).crontab"
     ;;
     osdserver)
+      echo "$0 osdserver-run" | at now 2> /dev/null
+    ;;
+    osdserver-run)
       osdserver_port=$(getservbyname vdrosdserver tcp 2>/dev/null) || osdserver_port=${DEFAULT_OSDSEVER_PORT}
       ConnectServer localhost ${osdserver_port}
       # Connect to the server process
