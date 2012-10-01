@@ -6,6 +6,7 @@ from __future__ import print_function
 # http://ghisler.fileburst.com/plugins/diskdirextended.zip
 
 import os, sys, codecs, time, platform
+from optparse import OptionParser
 
 os.stat_float_times(False)
 
@@ -117,7 +118,7 @@ def treewalker(base, directory, exclude):
 
     for item in filelist:
         fullitem = strjoin_not_none(path, item)
-        if os.path.isfile(fullitem):
+        if os.path.isfile(fullitem) and ((exclude == None) or (append_list(directory, item) not in exclude)):
             out.writefield(relpace_invalid(item), True)
             out.writefield("%d" % os.path.getsize(fullitem))
             date, time = windatetime(fullitem)
@@ -126,18 +127,16 @@ def treewalker(base, directory, exclude):
             out.newline()
 
     for item in filelist:
-        if exclude != None:
-            if append_list(directory, item) in exclude:
-                return
         fullitem = strjoin_not_none(path, item)
-        if os.path.isdir(fullitem):
+        if (os.path.isdir(fullitem)) and ((exclude == None) or (append_list(directory, item) not in exclude)):
             out.writefield(winjoin_not_none(directory) + relpace_invalid(item) + OS_SEP_WIN, True)
             out.writefield("0")
             date, time = windatetime(fullitem)
             out.writefield(date)
             out.writefield(time)
             out.newline()
-            treewalker(base, append_list(directory, item), exclude)
+            if not (os.path.ismount(fullitem) and options.stay):
+                treewalker(base, append_list(directory, item), exclude)
 
 
 
@@ -176,12 +175,30 @@ class outfile:
 
 if  __name__ == "__main__":
 
-    top = os.path.normpath(sys.argv[1]).split(os.sep)
-    if len(sys.argv) > 3:
-        excl = [os.path.normpath(sys.argv[3]).split(os.sep)]
+    parser = OptionParser(version="%prog pre", prog=os.path.basename(__file__))
+    parser.add_option("-d", "--directory", dest="directory", type="string", \
+      help="the base directory")
+    parser.add_option("-o", "--out", dest="out", type="string", \
+      help="the file to write")
+    parser.add_option("-s", "--stay-on-filesystem", dest="stay", action="store_true", \
+      help="stay on filesystem")
+    parser.add_option("-x", "--exclude", dest="exclude", action="append", type="string", \
+      help="exclude file or path, relative to base path")
+    options, args = parser.parse_args(sys.argv)
+
+    if options.directory == None:
+        parser.print_help()
+        sys.exit("-d/--directory missing")
+    if options.out == None:
+        parser.print_help()
+        sys.exit("-o/--out missing")
+
+    top = os.path.normpath(options.directory).split(os.sep)
+    if options.exclude != None:
+        excl = map(lambda x: os.path.normpath(x).split(os.sep), options.exclude)
     else:
         excl = None
-    out = outfile(sys.argv[2])
+    out = outfile(options.out)
     out.writefield(winjoin_not_none(top))
     out.newline()
     treewalker(top, None, excl)
