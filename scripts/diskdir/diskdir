@@ -1,0 +1,187 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+from __future__ import print_function
+
+# http://ghisler.fileburst.com/plugins/diskdir.zip
+# http://ghisler.fileburst.com/plugins/diskdirextended.zip
+
+import os, sys, codecs, time, platform
+
+os.stat_float_times(False)
+
+ENCODING = "cp1252"
+OS_SEP_WIN = "\\"
+REPLACE_INVALID = "_"
+REPLACE_UNKNOWN = "_"
+REPLACE_INVALIDCHAR = "_"
+INVALID_CHARS = ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]
+TAB_CHAR = "\t".encode(ENCODING)
+LF_CHAR = "\r\n".encode(ENCODING)
+
+if sys.version_info[:2] < (3,):
+    REPLACE_INVALID=REPLACE_INVALID.decode("utf-8")
+    REPLACE_UNKNOWN=REPLACE_UNKNOWN.decode("utf-8")
+
+
+
+def filechar(exc):
+    if isinstance(exc, UnicodeEncodeError):
+        return ((exc.end-exc.start)*REPLACE_INVALID, exc.end)
+    elif isinstance(exc, UnicodeDecodeError):
+        return ((exc.end-exc.start)*REPLACE_INVALID, exc.end)
+    elif isinstance(exc, UnicodeTranslateError):
+        return ((exc.end-exc.start)*REPLACE_INVALID, exc.end)
+    else:
+        raise TypeError("can't handle %s" % exc.__name__)
+#       raise TypeError("don't know how to handle %r" % exc)
+codecs.register_error("filechar", filechar)
+
+
+
+def invalidchar(exc):
+    if isinstance(exc, UnicodeEncodeError):
+        return ((exc.end-exc.start)*REPLACE_UNKNOWN, exc.end)
+    elif isinstance(exc, UnicodeDecodeError):
+        return ((exc.end-exc.start)*REPLACE_UNKNOWN, exc.end)
+    elif isinstance(exc, UnicodeTranslateError):
+        return ((exc.end-exc.start)*REPLACE_UNKNOWN, exc.end)
+    else:
+        raise TypeError("can't handle %s" % exc.__name__)
+codecs.register_error("invalidchar", invalidchar)
+
+
+
+def windatetime(filename):
+    filedatetime = os.path.getmtime(filename)
+    # diskdir roud up and diskdirext roud down
+    if filedatetime % 2 != 0:
+        filedatetime += 1
+        #filetime -= 1
+    # samba bug in dst
+    if time.localtime(filedatetime)[8] == 0:
+        filedatetime += 3600
+    # diskdir not pad with zeros
+    filedate = "%d.%d.%d" % tuple(time.localtime(filedatetime)[0:3])
+    filetime = "%d:%d.%d" % tuple(time.localtime(filedatetime)[3:6])
+    return filedate, filetime
+    #return time.strftime("%Y.%m.%d\t%H:%M.%S", time.localtime(filetime))
+
+
+
+def winjoin_not_none(data):
+	if data == None:
+		return ""
+	new = []
+	for item in data:
+		new.append(relpace_invalid(item))
+	return OS_SEP_WIN.join(new)+OS_SEP_WIN
+
+
+
+def join_not_none(data):
+	if data == None:
+		return None
+	return os.sep.join(data)
+
+
+
+def strjoin_not_none(string1, string2):
+	if string2 == None:
+		return string1
+	return os.sep.join([string1, string2])
+
+
+
+def append_list(liste, new):
+    if liste == None:
+        newlist = []
+    else:
+        newlist = liste[:]
+    newlist.append(new)
+    return newlist
+
+
+
+def relpace_invalid(filename):
+    for char in INVALID_CHARS:
+        if char in filename:
+            filename = filename.replace(char, REPLACE_INVALIDCHAR)
+    return filename
+
+
+
+def treewalker(base, directory, exclude):
+
+    path = strjoin_not_none(join_not_none(base), join_not_none(directory))
+    filelist = os.listdir(path)
+
+    for item in filelist:
+        fullitem = strjoin_not_none(path, item)
+        if os.path.isfile(fullitem):
+            out.writefield(relpace_invalid(item), True)
+            out.writefield("%d" % os.path.getsize(fullitem))
+            date, time = windatetime(fullitem)
+            out.writefield(date)
+            out.writefield(time)
+            out.newline()
+
+    for item in filelist:
+        if exclude != None:
+            if append_list(directory, item) in exclude:
+                return
+        fullitem = strjoin_not_none(path, item)
+        if os.path.isdir(fullitem):
+            out.writefield(winjoin_not_none(directory) + relpace_invalid(item) + OS_SEP_WIN, True)
+            out.writefield("0")
+            date, time = windatetime(fullitem)
+            out.writefield(date)
+            out.writefield(time)
+            out.newline()
+            treewalker(base, append_list(directory, item), exclude)
+
+
+
+class outfile:
+    def __init__(self, filename):
+        self.__file = fw = open(filename, mode='wb')
+        # http://bugs.python.org/issue12281
+        if (platform.system() == "Windows") and (sys.version_info[:2] >= (3,)):
+            self.__fsencoding = "utf-8"
+        else:
+            self.__fsencoding = sys.getfilesystemencoding()
+        if sys.version_info[:2] < (3,):
+            self.__python3 = False
+        else:
+            self.__python3 = True
+        self.__firstfield = True
+    def __del__(self):
+        self.__file.close()
+    def writefield(self, line, Filename=False):
+        if not self.__firstfield:
+            self.__file.write(TAB_CHAR)
+        else:
+            self.__firstfield = False
+        if Filename:
+            if self.__python3:
+                self.__file.write(line.encode("utf-8", "surrogateescape").decode(self.__fsencoding, "filechar").encode(ENCODING, "invalidchar"))
+            else:
+                self.__file.write(line.decode(self.__fsencoding, "filechar").encode(ENCODING, "invalidchar"))
+        else:
+            self.__file.write(line.encode(ENCODING))
+    def newline(self):
+        self.__firstfield = True
+        self.__file.write(LF_CHAR)
+
+
+
+if  __name__ == "__main__":
+
+    top = os.path.normpath(sys.argv[1]).split(os.sep)
+    if len(sys.argv) > 3:
+        excl = [os.path.normpath(sys.argv[3]).split(os.sep)]
+    else:
+        excl = None
+    out = outfile(sys.argv[2])
+    out.writefield(winjoin_not_none(top))
+    out.newline()
+    treewalker(top, None, excl)
