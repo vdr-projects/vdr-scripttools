@@ -23,8 +23,8 @@ msgstr "shutdown ermöglichen"
 msgid "Usage: $F start|stop [<id>]"
 msgstr "Nutzung: $F start|stop [<id>]"
 
-msgid "Usage: $F start|stop|osdserver <id>"
-msgstr "Nutzung: $F start|stop|osdserver <id>"
+msgid "Usage: $F start|stop|osdserver|init <id>"
+msgstr "Nutzung: $F start|stop|osdserver|init <id>"
 
 msgid "shutdown manually aborded"
 msgstr "shutdown manuell unterbunden"

@@ -18,6 +18,13 @@ if [ $? -eq 1 ]; then
   }
 fi
 
+initspooldir() {
+  if [ ! -d "${SPOOLDIR}" ]; then
+    mkdir -p "${SPOOLDIR}"
+    chmod ugo+w "${SPOOLDIR}"
+  fi
+}
+
 
 
 # copied from osdserver examples/demo.sh
@@ -186,7 +193,7 @@ function menu() {
 
     if IsEvent opt1 keyOk ; then
       SendCmd "menu.SendState osEnd" || return $false
-      mkdir -p "${SPOOLDIR}"
+      initspooldir
       touch "${SPOOLDIR}/flag.osdserver"
       return $true
     fi
@@ -205,7 +212,7 @@ F="$(basename "$0")"
 # We are /etc/cron.*/00000_croncheck
 if [ "$(basename "$0")" = "00000_croncheck" ]; then
   crontype="$(basename "$(dirname "$0")")"
-  mkdir -p "${SPOOLDIR}"
+  initspooldir
   echo "${crontype}" > "${SPOOLDIR}/${crontype}.cronparts"
 # We are /etc/cron.*/zzzzz_croncheck
 elif [ "$(basename "$0")" = "zzzzz_croncheck" ]; then
@@ -213,10 +220,10 @@ elif [ "$(basename "$0")" = "zzzzz_croncheck" ]; then
   rm -f "${SPOOLDIR}/${crontype}.cronparts"
 # We are /usr/bin/vdrps
 elif [ "$(basename "$0")" = "vdrps" ]; then
-  mkdir -p "${SPOOLDIR}"
+  initspooldir
   case "$1" in
     start)
-      mkdir -p "${SPOOLDIR}"
+      initspooldir
       [ -z "$2" ] \
        && touch "${SPOOLDIR}/flag.vdrpsflag" \
        || echo "${2}" > "${SPOOLDIR}/$(echo "${2}" | base64 -w 0).vdrps"
@@ -234,16 +241,20 @@ elif [ "$(basename "$0")" = "vdrps" ]; then
   esac
 # We are /usr/bin/croncheck
 elif [ "$(basename "$0")" = "croncheck" ]; then
-  mkdir -p "${SPOOLDIR}"
   case "$1" in
     start)
+      initspooldir
       [ -z "$2" ] && exit 1
-      mkdir -p "${SPOOLDIR}"
+      initspooldir
       echo "${2}" > "${SPOOLDIR}/$(echo "${2}" | base64 -w 0).crontab"
     ;;
     stop)
+      initspooldir
       [ -z "$2" ] && exit 1
       rm -f "${SPOOLDIR}/$(echo "${2}" | base64 -w 0).crontab"
+    ;;
+    init)
+      initspooldir
     ;;
     osdserver)
       echo "$0 osdserver-run" | at now 2> /dev/null
@@ -270,7 +281,7 @@ elif [ "$(basename "$0")" = "croncheck" ]; then
       # close FIFOs 
     ;;
     *)
-      printf "$(eval_gettext 'Usage: $F start|stop|osdserver <id>')\n"
+      printf "$(eval_gettext 'Usage: $F start|stop|osdserver|init <id>')\n"
       exit 1
     ;;
   esac
