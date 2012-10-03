@@ -1,0 +1,25 @@
+#!/bin/sh
+
+GUID="1858C0C5-1910-419E-9347-F1D5CA1A019F"
+
+
+export TEXTDOMAIN=extrametadata
+. gettext.sh 2> /dev/null
+if [ $? -eq 1 ]; then
+  eval_gettext () {
+    gettext_eval="printf '%s' \"$1\"" 
+    printf "%s" "`eval \"$gettext_eval\"`"
+  }
+  gettext() {
+    printf "%s" "$1";
+  }
+fi
+
+
+
+TEMPDIR=$(tempfile)
+rm "${TEMPDIR}"
+if [ -n "$(find "$(dirname ${TEMPDIR})" \( -type f -and -cmin -600 -and -name md5*.${GUID} \) )" ]; then
+  echo "ABORT_MESSAGE=\"$(gettext "checksum generation running")\""
+  exit 1
+fi

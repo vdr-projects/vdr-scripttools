@@ -6,44 +6,64 @@ set -e
 LENGTH_FILE="length.vdr"
 CRC_FILE="checksum.md5"
 
+GUID="1858C0C5-1910-419E-9347-F1D5CA1A019F"
+
 do_length() {
 
-	[ -e "${1}/index.vdr" ] && vdr-getlength "${1}" || true
-	[ -e "${1}/index" ] && vdr-getlength "${1}" || true
+  if ([ ! -f "${1}/${LENGTH_FILE}" ] || [ ! -s "${1}/${LENGTH_FILE}" ]); then
+    if [ -e "${1}/index.vdr" ]; then
+      echo $(( $(stat -L -c %s "${1}/index.vdr")/(8*25*60) )) > "${1}/${LENGTH_FILE}"
+    fi
+    if [ -e "${1}/index" ]; then
+      FRAMERATE=$(cat "${1}/info" 2> /dev/null | grep '^F [0123456789]*$' | cut -d ' ' -f 2)
+      echo $(( $(stat -L -c %s "${1}/index")/(8*${FRAMERATE:=25}*60) )) > "${1}/${LENGTH_FILE}"
+    fi
+  fi
 
 }
 
 do_crc() {
 
-	if [ -e "${1}/index.vdr" ]; then
-		echo "cd \"${1}\"; tmp=\"\$(tempfile)\"; nice -n 19 md5sum -b [0-9][0-9][0-9].vdr 2> /dev/null 1> \"\${tmp}\" && ([ -d \"${1}\" ] && cp \"\${tmp}\" \"${1}/${CRC_FILE}\" || echo \"directory ${1} moved\"; rm \"\${tmp}\")" | at now
-	fi
-	if [ -e "${1}/index" ]; then
-		echo "cd \"${1}\"; tmp=\"\$(tempfile)\"; nice -n 19 md5sum -b [0-9][0-9][0-9][0-9][0-9].ts 2> /dev/null 1> \"\${tmp}\" && ([ -d \"${1}\" ] && cp \"\${tmp}\" \"${1}/${CRC_FILE}\" || echo \"directory ${1} moved\"; rm \"\${tmp}\")" | at now
-	fi
+  if ([ ! -f "${1}/${CRC_FILE}" ] || [ ! -s "${1}/${CRC_FILE}" ]); then
+    [ -e "${1}/001.vdr" ] && \
+      echo "cd \"${1}\"; tmp=\"\$(tempfile -p md5 -s .${GUID})\"; nice -n 19 md5sum -b [0-9][0-9][0-9].vdr 2> /dev/null 1> \"\${tmp}\" && ([ -d \"${1}\" ] && cp \"\${tmp}\" \"${1}/${CRC_FILE}\"); rm \"\${tmp}\"" | at now 2> /dev/null
+    [ -e "${1}/00001.ts" ] && \
+      echo "cd \"${1}\"; tmp=\"\$(tempfile -p md5 -s .${GUID})\"; nice -n 19 md5sum -b [0-9][0-9][0-9][0-9][0-9].ts 2> /dev/null 1> \"\${tmp}\" && ([ -d \"${1}\" ] && cp \"\${tmp}\" \"${1}/${CRC_FILE}\"); rm \"\${tmp}\"" | at now 2> /dev/null
+  fi
 
 }
-
-do_move() {
-
-	cp "${1}/${LENGTH_FILE}" "${2}/${LENGTH_FILE}"
-	cp "${1}/${CRC_FILE}" "${2}/${CRC_FILE}"
-
-}
-
 
 case "${1}" in
 
-	after|edited)
-		TARGET_RECORD_DIR="${2}"
-		do_length "${TARGET_RECORD_DIR}"
-		do_crc "${TARGET_RECORD_DIR}"
-	;;
-	move)
-		SOURCE_RECORD_DIR="${2}"
-		TARGET_RECORD_DIR="${3}"
-		do_move "${SOURCE_RECORD_DIR}" "${TARGET_RECORD_DIR}"
-	;;
+  after|edited)
+    TARGET_RECORD_DIR="${2}"
+    do_length "${TARGET_RECORD_DIR}"
+    do_crc "${TARGET_RECORD_DIR}"
+  ;;
+  move)
+    SOURCE_RECORD_DIR="${2}"
+    TARGET_RECORD_DIR="${3}"
+    cp "${SOURCE_RECORD_DIR}/${LENGTH_FILE}" "${TARGET_RECORD_DIR}/${LENGTH_FILE}" 2> /dev/null || true
+    do_length "${TARGET_RECORD_DIR}"
+    cp "${SOURCE_RECORD_DIR}/${CRC_FILE}" "${TARGET_RECORD_DIR}/${CRC_FILE}" 2> /dev/null || true
+    do_crc "${TARGET_RECORD_DIR}"
+  ;;
+  rename)
+    TARGET_RECORD_DIR="${3}"
+    do_length "${TARGET_RECORD_DIR}"
+    do_crc "${TARGET_RECORD_DIR}"
+  ;;
+  check)
+    TEMPDIR=$(tempfile)
+    rm "${TEMPDIR}"
+    while [ -n "$(find "$(dirname ${TEMPDIR})" \( -type f -and -cmin -600 -and -name md5*.${GUID} \) )" ]
+    do
+      sleep 10
+    done
+    TARGET_RECORD_DIR="${2}"
+    do_length "${TARGET_RECORD_DIR}"
+    do_crc "${TARGET_RECORD_DIR}"
+  ;;
 
 esac
 
